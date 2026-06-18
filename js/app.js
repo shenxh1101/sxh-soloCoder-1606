@@ -59,12 +59,37 @@
         });
 
         document.getElementById('filterDate').addEventListener('change', function () {
-            UI.setFilterDate(this.value);
+            UI.currentFilterDate = this.value;
+            UI.renderOrderList();
+        });
+
+        document.getElementById('todayBtn').addEventListener('click', function () {
+            const today = Store.getToday();
+            document.getElementById('filterDate').value = today;
+            UI.currentFilterDate = today;
+            UI.renderOrderList();
+            UI.showToast('已切换到今日', 'info');
         });
 
         document.getElementById('clearFilterBtn').addEventListener('click', function () {
             document.getElementById('filterDate').value = '';
-            UI.setFilterDate('');
+            document.getElementById('filterOrigin').value = 'all';
+            document.getElementById('filterDestination').value = 'all';
+            UI.currentFilterDate = '';
+            UI.currentFilterOrigin = 'all';
+            UI.currentFilterDest = 'all';
+            UI.renderOrderList();
+            UI.showToast('已清除所有筛选', 'info');
+        });
+
+        document.getElementById('filterOrigin').addEventListener('change', function () {
+            UI.currentFilterOrigin = this.value;
+            UI.renderOrderList();
+        });
+
+        document.getElementById('filterDestination').addEventListener('change', function () {
+            UI.currentFilterDest = this.value;
+            UI.renderOrderList();
         });
 
         document.getElementById('modalCloseBtn').addEventListener('click', function () {

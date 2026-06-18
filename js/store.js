@@ -4,7 +4,9 @@ const Store = (() => {
         CAGES: 'pet_shipping_cages',
         STATUS_LOGS: 'pet_shipping_status_logs',
         HEALTH_LOGS: 'pet_shipping_health_logs',
-        OPERATOR: 'pet_shipping_operator'
+        OPERATOR: 'pet_shipping_operator',
+        ENV_LOGS: 'pet_shipping_env_logs',
+        DISINFECT_LOGS: 'pet_shipping_disinfect_logs'
     };
 
     const STATUS_LABELS = {
@@ -13,6 +15,39 @@ const Store = (() => {
         in_transit: '运输中',
         arrived: '到达目的地',
         delivered: '已签收'
+    };
+
+    const STATUS_DESCRIPTIONS = {
+        pending: {
+            title: '订单已创建，等待运营人员确认',
+            etaText: '预计接单时间',
+            etaHours: 1,
+            icon: 'clipboard-list'
+        },
+        waiting_pickup: {
+            title: '订单已确认，司机正在前往取宠',
+            etaText: '预计取宠时间',
+            etaHours: 3,
+            icon: 'truck'
+        },
+        in_transit: {
+            title: '宠物正在运输途中，全程监控中',
+            etaText: '预计到达时间',
+            etaHours: null,
+            icon: 'plane'
+        },
+        arrived: {
+            title: '宠物已到达目的地城市',
+            etaText: '预计派送时间',
+            etaHours: 2,
+            icon: 'map-pin'
+        },
+        delivered: {
+            title: '宠物已安全送达，感谢信任',
+            etaText: '完成时间',
+            etaHours: 0,
+            icon: 'check-circle-2'
+        }
     };
 
     const STATUS_FLOW = ['pending', 'waiting_pickup', 'in_transit', 'arrived', 'delivered'];
@@ -127,6 +162,102 @@ const Store = (() => {
     function getHealthLogsByOrder(orderId) {
         return getHealthLogs().filter(log => log.order_id === orderId)
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    }
+
+    function hasAbnormalHealth(orderId) {
+        const logs = getHealthLogsByOrder(orderId);
+        return logs.some(log => log.is_abnormal);
+    }
+
+    function getEnvLogs() {
+        return get(STORAGE_KEYS.ENV_LOGS, []);
+    }
+
+    function saveEnvLogs(logs) {
+        return set(STORAGE_KEYS.ENV_LOGS, logs);
+    }
+
+    function addEnvLog(cageId, temperature, humidity) {
+        const logs = getEnvLogs();
+        logs.push({
+            id: generateId('env'),
+            cage_id: cageId,
+            temperature,
+            humidity,
+            timestamp: new Date().toISOString()
+        });
+        const cageLogs = logs.filter(l => l.cage_id === cageId);
+        if (cageLogs.length > 100) {
+            const removeCount = cageLogs.length - 100;
+            const sorted = cageLogs.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            const toRemove = sorted.slice(0, removeCount).map(l => l.id);
+            const filtered = logs.filter(l => !toRemove.includes(l.id));
+            saveEnvLogs(filtered);
+        } else {
+            saveEnvLogs(logs);
+        }
+    }
+
+    function getEnvLogsByCage(cageId) {
+        return getEnvLogs().filter(l => l.cage_id === cageId)
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, 20);
+    }
+
+    function getDisinfectLogs() {
+        return get(STORAGE_KEYS.DISINFECT_LOGS, []);
+    }
+
+    function saveDisinfectLogs(logs) {
+        return set(STORAGE_KEYS.DISINFECT_LOGS, logs);
+    }
+
+    function addDisinfectLog(cageId, operator, type) {
+        const logs = getDisinfectLogs();
+        logs.push({
+            id: generateId('disinfect'),
+            cage_id: cageId,
+            operator: operator || getOperator(),
+            type: type || 'routine',
+            timestamp: new Date().toISOString()
+        });
+        saveDisinfectLogs(logs);
+    }
+
+    function getDisinfectLogsByCage(cageId) {
+        return getDisinfectLogs().filter(l => l.cage_id === cageId)
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, 10);
+    }
+
+    function calculateDistance(lat1, lng1, lat2, lng2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    function getTransportETA(origin, dest, inTransitMs) {
+        const originCoords = typeof origin === 'string' ? JSON.parse(origin) : origin;
+        const destCoords = typeof dest === 'string' ? JSON.parse(dest) : dest;
+        const distance = calculateDistance(
+            originCoords.lat, originCoords.lng,
+            destCoords.lat, destCoords.lng
+        );
+        const avgSpeed = 80;
+        const totalHours = Math.max(3, distance / avgSpeed);
+        const totalMs = totalHours * 3600 * 1000;
+        const progress = inTransitMs ? Math.min(1, inTransitMs / totalMs) : 0;
+        return {
+            distance: Math.round(distance),
+            totalHours: Math.round(totalHours * 10) / 10,
+            totalMs,
+            progress
+        };
     }
 
     function initializeCages() {
@@ -264,6 +395,7 @@ const Store = (() => {
     return {
         STORAGE_KEYS,
         STATUS_LABELS,
+        STATUS_DESCRIPTIONS,
         STATUS_FLOW,
         CITIES,
         get,
@@ -285,6 +417,16 @@ const Store = (() => {
         setOperator,
         getStatusLogsByOrder,
         getHealthLogsByOrder,
+        hasAbnormalHealth,
+        getEnvLogs,
+        saveEnvLogs,
+        addEnvLog,
+        getEnvLogsByCage,
+        getDisinfectLogs,
+        saveDisinfectLogs,
+        addDisinfectLog,
+        getDisinfectLogsByCage,
+        getTransportETA,
         initializeCages,
         initializeMockData
     };

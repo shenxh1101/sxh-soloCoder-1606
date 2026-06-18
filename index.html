@@ -32,9 +32,26 @@
                 </div>
                 <div class="header-actions">
                     <div class="date-filter">
-                        <label for="filterDate">筛选日期：</label>
+                        <label for="filterDate">日期：</label>
                         <input type="date" id="filterDate">
+                        <button class="btn btn-ghost btn-sm" id="todayBtn">今日</button>
                         <button class="btn btn-ghost btn-sm" id="clearFilterBtn">清除</button>
+                    </div>
+                    <div class="advanced-filters">
+                        <select id="filterOrigin">
+                            <option value="all">全部起运地</option>
+                            <option value="北京">北京</option><option value="上海">上海</option>
+                            <option value="广州">广州</option><option value="深圳">深圳</option>
+                            <option value="成都">成都</option><option value="杭州">杭州</option>
+                            <option value="武汉">武汉</option><option value="西安">西安</option>
+                        </select>
+                        <select id="filterDestination">
+                            <option value="all">全部目的地</option>
+                            <option value="北京">北京</option><option value="上海">上海</option>
+                            <option value="广州">广州</option><option value="深圳">深圳</option>
+                            <option value="成都">成都</option><option value="杭州">杭州</option>
+                            <option value="武汉">武汉</option><option value="西安">西安</option>
+                        </select>
                     </div>
                     <div class="operator-info">
                         <span>操作人：</span>
@@ -119,7 +136,8 @@
                             订单列表
                         </h2>
                         <div class="order-tabs" id="orderTabs">
-                            <button class="tab-btn active" data-status="all">全部</button>
+                            <button class="tab-btn active" data-status="today_view">今日待处理</button>
+                            <button class="tab-btn" data-status="all">全部</button>
                             <button class="tab-btn" data-status="pending">待接单</button>
                             <button class="tab-btn" data-status="waiting_pickup">待取宠</button>
                             <button class="tab-btn" data-status="in_transit">运输中</button>
