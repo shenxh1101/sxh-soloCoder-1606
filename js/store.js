@@ -6,8 +6,26 @@ const Store = (() => {
         HEALTH_LOGS: 'pet_shipping_health_logs',
         OPERATOR: 'pet_shipping_operator',
         ENV_LOGS: 'pet_shipping_env_logs',
-        DISINFECT_LOGS: 'pet_shipping_disinfect_logs'
+        DISINFECT_LOGS: 'pet_shipping_disinfect_logs',
+        TRANSPORT_NODES: 'pet_shipping_transport_nodes'
     };
+
+    const TRANSPORT_NODE_TYPES = {
+        pick_complete: { label: '取宠完成', icon: '✅', progress: 0.1, desc: '宠物已从发货人处安全接取' },
+        mid_transit_1: { label: '途中中转·第1站', icon: '🔄', progress: 0.35, desc: '已通过第一中转站，检查正常' },
+        mid_transit_2: { label: '途中中转·第2站', icon: '🔄', progress: 0.65, desc: '已通过第二中转站，宠物状态良好' },
+        arrive_city: { label: '到达目的城市', icon: '🏙️', progress: 0.9, desc: '已到达目的地城市，等待派送' },
+        delivering: { label: '派送中', icon: '🚚', progress: 0.97, desc: '派送员已出发，正在前往收货人地址' }
+    };
+
+    const DISINFECT_TYPES = {
+        routine: '常规消毒',
+        deep: '深度消毒',
+        quick: '快速消毒',
+        fumigation: '熏蒸消毒'
+    };
+
+    const OPERATOR_LIST = ['张管理员', '李值班员', '王调度', '赵护理员', '孙司机'];
 
     const STATUS_LABELS = {
         pending: '待接单',
@@ -169,6 +187,28 @@ const Store = (() => {
         return logs.some(log => log.is_abnormal);
     }
 
+    function hasUnresolvedAbnormalHealth(orderId) {
+        const logs = getHealthLogsByOrder(orderId);
+        return logs.some(log => log.is_abnormal && !log.resolved);
+    }
+
+    function resolveHealthLog(logId, resolution, resolvedBy) {
+        const logs = getHealthLogs();
+        const idx = logs.findIndex(l => l.id === logId);
+        if (idx === -1) return false;
+        logs[idx].resolved = true;
+        logs[idx].resolution = resolution || '';
+        logs[idx].resolved_at = new Date().toISOString();
+        logs[idx].resolved_by = resolvedBy || getOperator();
+        saveHealthLogs(logs);
+        return true;
+    }
+
+    function getAllUnresolvedAbnormalOrders() {
+        const orders = getOrders();
+        return orders.filter(o => hasUnresolvedAbnormalHealth(o.id));
+    }
+
     function getEnvLogs() {
         return get(STORAGE_KEYS.ENV_LOGS, []);
     }
@@ -212,13 +252,15 @@ const Store = (() => {
         return set(STORAGE_KEYS.DISINFECT_LOGS, logs);
     }
 
-    function addDisinfectLog(cageId, operator, type) {
+    function addDisinfectLog(cageId, operator, type, notes, assignedTo) {
         const logs = getDisinfectLogs();
         logs.push({
             id: generateId('disinfect'),
             cage_id: cageId,
             operator: operator || getOperator(),
             type: type || 'routine',
+            notes: notes || '',
+            assigned_to: assignedTo || operator || getOperator(),
             timestamp: new Date().toISOString()
         });
         saveDisinfectLogs(logs);
@@ -228,6 +270,72 @@ const Store = (() => {
         return getDisinfectLogs().filter(l => l.cage_id === cageId)
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
             .slice(0, 10);
+    }
+
+    function getDisinfectLogsByOperator(operatorName, days) {
+        const logs = getDisinfectLogs().filter(l => l.operator === operatorName);
+        if (days && days > 0) {
+            const cutoff = Date.now() - days * 86400000;
+            return logs.filter(l => new Date(l.timestamp).getTime() >= cutoff)
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        }
+        return logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    }
+
+    function getDisinfectStatsByOperator(days) {
+        const result = {};
+        OPERATOR_LIST.forEach(op => result[op] = { count: 0, types: {} });
+        const logs = days && days > 0
+            ? getDisinfectLogs().filter(l => new Date(l.timestamp).getTime() >= Date.now() - days * 86400000)
+            : getDisinfectLogs();
+        logs.forEach(log => {
+            const op = log.operator;
+            if (!result[op]) result[op] = { count: 0, types: {} };
+            result[op].count++;
+            const t = DISINFECT_TYPES[log.type] || log.type;
+            result[op].types[t] = (result[op].types[t] || 0) + 1;
+        });
+        return result;
+    }
+
+    function getTransportNodes() {
+        return get(STORAGE_KEYS.TRANSPORT_NODES, []);
+    }
+
+    function saveTransportNodes(nodes) {
+        return set(STORAGE_KEYS.TRANSPORT_NODES, nodes);
+    }
+
+    function getTransportNodesByOrder(orderId) {
+        return getTransportNodes()
+            .filter(n => n.order_id === orderId)
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    }
+
+    function addTransportNode(orderId, nodeType, operator, notes) {
+        const typeConfig = TRANSPORT_NODE_TYPES[nodeType];
+        if (!typeConfig) throw new Error('无效的运输节点类型');
+        const nodes = getTransportNodes();
+        const node = {
+            id: generateId('tnode'),
+            order_id: orderId,
+            node_type: nodeType,
+            label: typeConfig.label,
+            icon: typeConfig.icon,
+            progress: typeConfig.progress,
+            description: typeConfig.desc,
+            notes: notes || '',
+            operator: operator || getOperator(),
+            timestamp: new Date().toISOString()
+        };
+        nodes.push(node);
+        saveTransportNodes(nodes);
+        return node;
+    }
+
+    function removeTransportNode(nodeId) {
+        const nodes = getTransportNodes().filter(n => n.id !== nodeId);
+        saveTransportNodes(nodes);
     }
 
     function calculateDistance(lat1, lng1, lat2, lng2) {
@@ -262,7 +370,17 @@ const Store = (() => {
 
     function initializeCages() {
         const existing = getCages();
-        if (existing.length === 20) return existing;
+        if (existing.length === 20) {
+            let needUpgrade = false;
+            existing.forEach(c => {
+                if (!c.hasOwnProperty('assigned_to')) { c.assigned_to = ''; needUpgrade = true; }
+                if (!c.hasOwnProperty('cleaning_notes')) { c.cleaning_notes = ''; needUpgrade = true; }
+                if (!c.hasOwnProperty('cleaning_scheduled_at')) { c.cleaning_scheduled_at = null; needUpgrade = true; }
+                if (!c.hasOwnProperty('cleaning_started_at')) { c.cleaning_started_at = null; needUpgrade = true; }
+            });
+            if (needUpgrade) saveCages(existing);
+            return existing;
+        }
 
         const cages = [];
         for (let i = 1; i <= 20; i++) {
@@ -273,7 +391,11 @@ const Store = (() => {
                 temperature: 20 + Math.random() * 5,
                 humidity: 45 + Math.random() * 20,
                 last_disinfected: new Date(Date.now() - Math.random() * 86400000 * 3).toISOString(),
-                disinfected_by: '系统初始化'
+                disinfected_by: '系统初始化',
+                assigned_to: '',
+                cleaning_notes: '',
+                cleaning_scheduled_at: null,
+                cleaning_started_at: null
             });
         }
         saveCages(cages);
@@ -398,6 +520,9 @@ const Store = (() => {
         STATUS_DESCRIPTIONS,
         STATUS_FLOW,
         CITIES,
+        TRANSPORT_NODE_TYPES,
+        DISINFECT_TYPES,
+        OPERATOR_LIST,
         get,
         set,
         generateId,
@@ -418,6 +543,9 @@ const Store = (() => {
         getStatusLogsByOrder,
         getHealthLogsByOrder,
         hasAbnormalHealth,
+        hasUnresolvedAbnormalHealth,
+        resolveHealthLog,
+        getAllUnresolvedAbnormalOrders,
         getEnvLogs,
         saveEnvLogs,
         addEnvLog,
@@ -426,6 +554,13 @@ const Store = (() => {
         saveDisinfectLogs,
         addDisinfectLog,
         getDisinfectLogsByCage,
+        getDisinfectLogsByOperator,
+        getDisinfectStatsByOperator,
+        getTransportNodes,
+        saveTransportNodes,
+        getTransportNodesByOrder,
+        addTransportNode,
+        removeTransportNode,
         getTransportETA,
         initializeCages,
         initializeMockData

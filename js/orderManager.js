@@ -241,12 +241,83 @@ const OrderManager = (() => {
             notes: data.notes || '',
             is_abnormal: !!data.is_abnormal,
             abnormal_type: data.abnormal_type || '',
+            resolved: false,
+            resolution: '',
+            resolved_at: null,
+            resolved_by: '',
             timestamp: new Date().toISOString(),
             operator: operator || Store.getOperator()
         };
         logs.push(entry);
         Store.saveHealthLogs(logs);
         return entry;
+    }
+
+    function resolveHealthLog(logId, resolution, operator) {
+        return Store.resolveHealthLog(logId, resolution, operator);
+    }
+
+    function getAllUnresolvedAbnormalOrders() {
+        return Store.getAllUnresolvedAbnormalOrders();
+    }
+
+    function hasUnresolvedAbnormal(orderId) {
+        return Store.hasUnresolvedAbnormalHealth(orderId);
+    }
+
+    function getTransportNodes(orderId) {
+        return Store.getTransportNodesByOrder(orderId);
+    }
+
+    function addTransportNode(orderId, nodeType, operator, notes) {
+        return Store.addTransportNode(orderId, nodeType, operator, notes);
+    }
+
+    function removeTransportNode(nodeId) {
+        Store.removeTransportNode(nodeId);
+    }
+
+    function getEffectiveProgress(orderId) {
+        const base = getTransportProgress(orderId);
+        const nodes = Store.getTransportNodesByOrder(orderId);
+        let maxNodeProgress = 0;
+        nodes.forEach(n => { if (n.progress > maxNodeProgress) maxNodeProgress = n.progress; });
+        const baseProgress = (base && base.eta) ? base.eta.progress : 0;
+        const finalProgress = Math.max(baseProgress, maxNodeProgress, (base && base.current_status === 'delivered') ? 1 : 0);
+        return {
+            ...(base || {}),
+            nodes,
+            effective_progress: finalProgress,
+            node_progress: maxNodeProgress,
+            base_progress: baseProgress
+        };
+    }
+
+    function getDashboardData() {
+        const today = Store.getToday();
+        const todayOrders = filterOrders({ dateStr: today });
+        const stats = getOrderStats();
+
+        return {
+            generated_at: new Date().toISOString(),
+            today: {
+                date: today,
+                total: todayOrders.length,
+                pending: stats.today_pending,
+                waiting_pickup: stats.today_waiting,
+                in_transit: stats.today_in_transit,
+                arrived: stats.today_arrived
+            },
+            cards: {
+                today_pending: filterOrders({ dateStr: today, status: 'pending' }),
+                today_waiting_pickup: filterOrders({ dateStr: today, status: 'waiting_pickup' }),
+                today_in_transit: filterOrders({ dateStr: today, status: 'in_transit' }),
+                today_arrived: filterOrders({ dateStr: today, status: 'arrived' }),
+                cages_cleaning: CageManager.getCleaningCages(),
+                abnormal_orders: getAllUnresolvedAbnormalOrders()
+            },
+            disinfect_stats: Store.getDisinfectStatsByOperator(7)
+        };
     }
 
     function getOrderStats() {
@@ -299,6 +370,14 @@ const OrderManager = (() => {
         getStatusTimeline,
         getTransportProgress,
         addHealthLog,
+        resolveHealthLog,
+        getAllUnresolvedAbnormalOrders,
+        hasUnresolvedAbnormal,
+        getTransportNodes,
+        addTransportNode,
+        removeTransportNode,
+        getEffectiveProgress,
+        getDashboardData,
         getOrderStats,
         getAvailableOrigins,
         getAvailableDestinations

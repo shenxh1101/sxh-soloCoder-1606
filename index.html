@@ -136,6 +136,7 @@
                             订单列表
                         </h2>
                         <div class="order-tabs" id="orderTabs">
+                            <button class="tab-btn dashboard-tab" data-status="dashboard">📊 值班大屏</button>
                             <button class="tab-btn active" data-status="today_view">今日待处理</button>
                             <button class="tab-btn" data-status="all">全部</button>
                             <button class="tab-btn" data-status="pending">待接单</button>
@@ -144,6 +145,7 @@
                             <button class="tab-btn" data-status="arrived">已到达</button>
                             <button class="tab-btn" data-status="delivered">已签收</button>
                         </div>
+                        <div class="dashboard-container" id="dashboardContainer" style="display:none;"></div>
                         <div class="order-list" id="orderList">
                         </div>
                     </section>

@@ -42,13 +42,28 @@ const CageManager = (() => {
         return false;
     }
 
-    function scheduleCleaning(cageId, operator) {
+    function scheduleCleaning(cageId, operator, assignedTo) {
         const cages = Store.getCages();
         const idx = cages.findIndex(c => c.id === cageId);
         if (idx !== -1) {
             cages[idx].status = 'cleaning';
             cages[idx].cleaning_scheduled_at = new Date().toISOString();
             cages[idx].cleaning_scheduled_by = operator || Store.getOperator();
+            cages[idx].assigned_to = assignedTo || operator || Store.getOperator();
+            cages[idx].cleaning_notes = cages[idx].cleaning_notes || '';
+            Store.saveCages(cages);
+            return true;
+        }
+        return false;
+    }
+
+    function assignCleaningTo(cageId, operatorName, assignedBy) {
+        const cages = Store.getCages();
+        const idx = cages.findIndex(c => c.id === cageId);
+        if (idx !== -1) {
+            cages[idx].assigned_to = operatorName;
+            cages[idx].cleaning_assigned_by = assignedBy || Store.getOperator();
+            cages[idx].cleaning_assigned_at = new Date().toISOString();
             Store.saveCages(cages);
             return true;
         }
@@ -71,17 +86,20 @@ const CageManager = (() => {
         return false;
     }
 
-    function finishCleaning(cageId, operator, disinfectType) {
+    function finishCleaning(cageId, operator, disinfectType, notes) {
         const cages = Store.getCages();
         const idx = cages.findIndex(c => c.id === cageId);
         if (idx !== -1) {
+            const assignedTo = cages[idx].assigned_to || operator;
             cages[idx].status = 'available';
             cages[idx].cleaning_finished_at = new Date().toISOString();
             cages[idx].last_disinfected = new Date().toISOString();
             cages[idx].disinfected_by = operator || Store.getOperator();
-            cages[idx].disinfect_type = disinfectType || 'standard';
+            cages[idx].disinfect_type = disinfectType || 'routine';
+            cages[idx].cleaning_notes = notes || '';
+            cages[idx].assigned_to = '';
             Store.saveCages(cages);
-            Store.addDisinfectLog(cageId, operator, disinfectType || 'standard');
+            Store.addDisinfectLog(cageId, operator, disinfectType || 'routine', notes || '', assignedTo);
             return true;
         }
         return false;
@@ -93,11 +111,24 @@ const CageManager = (() => {
         if (idx !== -1) {
             cages[idx].last_disinfected = new Date().toISOString();
             cages[idx].disinfected_by = operator || Store.getOperator();
+            cages[idx].disinfect_type = 'quick';
             Store.saveCages(cages);
-            Store.addDisinfectLog(cageId, operator, 'quick');
+            Store.addDisinfectLog(cageId, operator, 'quick', '值班快速消毒', operator);
             return true;
         }
         return false;
+    }
+
+    function getCleaningCages() {
+        const cages = Store.getCages().filter(c => c.status === 'cleaning');
+        return cages.map(c => ({
+            ...c,
+            disinfectLogs: Store.getDisinfectLogsByCage(c.id)
+        })).sort((a, b) => new Date(a.cleaning_scheduled_at || '') - new Date(b.cleaning_scheduled_at || ''));
+    }
+
+    function getDisinfectStatsByOperator(days) {
+        return Store.getDisinfectStatsByOperator(days);
     }
 
     function updateEnvironment(cageId, temperature, humidity) {
@@ -163,9 +194,11 @@ const CageManager = (() => {
         getCageById,
         getAvailableCages,
         getOccupiedCages,
+        getCleaningCages,
         assignCage,
         releaseCage,
         scheduleCleaning,
+        assignCleaningTo,
         setCleaning,
         startCleaning,
         finishCleaning,
@@ -173,6 +206,7 @@ const CageManager = (() => {
         updateEnvironment,
         simulateEnvironmentUpdate,
         getCageStats,
+        getDisinfectStatsByOperator,
         getOrderByCage,
         getCageDetail
     };
